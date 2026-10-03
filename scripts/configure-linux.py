@@ -27,7 +27,7 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-WorkingDirectory={systemd_quote(root)}
+WorkingDirectory={str(root).replace('%', '%%')}
 Environment={systemd_quote('DATA_DIR=' + str(root / 'data'))}
 Environment={systemd_quote('PLAYWRIGHT_BROWSERS_PATH=' + str(root / 'data/browsers'))}
 ExecStart={systemd_quote(root / '.venv/bin/uvicorn')} app.main:app --host 0.0.0.0 --port {port}
