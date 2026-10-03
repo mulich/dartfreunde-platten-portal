@@ -34,8 +34,8 @@ ghcr.io/mulich/dartfreunde-platten-portal:latest
 ```
 
 Das Container-Package ist öffentlich und kann ohne GitHub-Anmeldung geladen werden.
-Das Quellcode-Repository bleibt privat. Für Google-Anmeldungen in einer Linux-VM
-mit Desktop siehe [LINUX-VM.md](LINUX-VM.md); der Docker-Container enthält keinen Desktop.
+Das Quellcode-Repository bleibt privat. Unterstützt wird die direkte Anmeldung
+mit Autodarts-Zugangsdaten; Google-Anmeldung wird nicht unterstützt.
 
 ### Docker Compose mit fertigem Image
 
@@ -60,8 +60,8 @@ ausgehen, dass vorhandene Profile automatisch übernommen werden.
 3. Als Compose path `compose.portainer.yaml` verwenden.
 4. Das Image `ghcr.io/mulich/dartfreunde-platten-portal:latest` ist bereits
    hinterlegt. Optional `PORTAL_IMAGE` für eine feste Version oder `PORTAL_PORT`
-   für einen anderen Port setzen; Standard ist `8000`.
-5. Stack bereitstellen. Das Portal öffnet sich unter `http://SERVER-IP:8000`.
+   für einen anderen Port setzen; Standard ist `18080`.
+5. Stack bereitstellen. Das Portal öffnet sich unter `http://SERVER-IP:18080`.
 6. Für ein Update nach erfolgreichem GitHub-Build **Pull and redeploy** mit
    **Re-pull image** verwenden. Das Datenvolume bleibt dabei erhalten.
 

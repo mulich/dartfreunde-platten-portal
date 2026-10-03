@@ -4,8 +4,6 @@ import json
 import logging
 import os
 import uuid
-import sys
-import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -43,19 +41,15 @@ locks = {}
 starting = set()
 errors = {}
 playwright = None
-native_processes = {}
 SETTINGS_FILE = DATA / 'automation.json'
 automation_settings = json.loads(SETTINGS_FILE.read_text()) if SETTINGS_FILE.exists() else {'hosts': ['rot', 'schwarz', 'blau']}
 acceptor = None
 
 
-def native_chrome():
-    if sys.platform == "darwin":
-        path = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
-        return str(path) if path.exists() else None
-    if os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY"):
-        return shutil.which("google-chrome") or shutil.which("google-chrome-stable")
-    return None
+def player_profile(item):
+    # Keep obsolete desktop profiles intact; Chromium must not downgrade them.
+    suffix = '-autodarts' if item.get('browser') == 'chrome' else ''
+    return DATA / 'profiles' / (item['id'] + suffix)
 
 
 def player_lock(ident):
@@ -68,14 +62,10 @@ async def start_player(ident):
             return
         if not registry.get(ident):
             raise HTTPException(404, "Spieler nicht gefunden")
-        process = native_processes.get(ident)
-        if process and process.returncode is None:
-            raise HTTPException(409, "Bitte zuerst das separate Chrome-Fenster schließen und dann Anmeldung übernehmen.")
         starting.add(ident)
         try:
             context = await playwright.chromium.launch_persistent_context(
-                str(DATA / "profiles" / ident), headless=True,
-                channel=registry.get(ident).get("browser", "chromium"),
+                str(player_profile(registry.get(ident))), headless=True,
                 viewport={"width": 1280, "height": 800}, locale="de-DE",
                 args=["--disable-background-timer-throttling",
                       "--disable-renderer-backgrounding",
@@ -116,10 +106,6 @@ async def lifespan(app):
     automation_task.cancel()
     await asyncio.gather(task, automation_task, return_exceptions=True)
     await asyncio.gather(*(c.close() for c in contexts.values()), return_exceptions=True)
-    for process in native_processes.values():
-        if process.returncode is None:
-            process.terminate()
-            await process.wait()
     await playwright.stop()
 
 
@@ -163,7 +149,6 @@ class Player(BaseModel):
 @app.get("/api/players")
 async def list_players():
     return [{**p, "status": "starting" if p["id"] in starting else
-             "native" if p["id"] in native_processes and native_processes[p["id"]].returncode is None else
              "running" if p["id"] in contexts else "stopped",
              "auto_accept": p.get('auto_accept', False),
              "automation": acceptor.status.get(p['id'], {}) if acceptor else {},
@@ -212,58 +197,6 @@ async def set_auto_accept(ident: str, setting: AutoAcceptSetting):
     return {'enabled': setting.enabled}
 
 
-@app.get("/api/capabilities")
-async def capabilities():
-    return {"native_login": bool(native_chrome())}
-
-
-@app.post("/api/players/{ident}/native-login")
-async def native_login(ident: str):
-    executable = native_chrome()
-    if not executable:
-        raise HTTPException(409, "Für die Google-Anmeldung wird Chrome auf dem Portal-Rechner mit Desktop benötigt. Im aktuellen Docker-Container ist diese Anmeldung nicht verfügbar.")
-    async with player_lock(ident):
-        item = registry.get(ident)
-        if not item:
-            raise HTTPException(404, "Spieler nicht gefunden")
-        process = native_processes.get(ident)
-        if process and process.returncode is None:
-            return {"ok": True}
-        context = contexts.pop(ident, None)
-        if context:
-            await context.close()
-        # Use the same browser family for both login and subsequent portal use.
-        # No personal default Chrome profile is ever opened or copied.
-        if item.get("browser") != "chrome":
-            source = DATA / "profiles" / ident
-            if source.exists():
-                # Retain the old Chromium profile rather than opening it with a
-                # newer Chrome version and making rollback impossible.
-                source.rename(DATA / "profiles" / (ident + "-chromium-backup"))
-            item["browser"] = "chrome"
-            registry.save()
-        profile = (DATA / "profiles" / ident).resolve()
-        profile.mkdir(parents=True, exist_ok=True)
-        native_processes[ident] = await asyncio.create_subprocess_exec(
-            executable, f"--user-data-dir={profile}", "--no-first-run",
-            "--no-default-browser-check", "--disable-background-mode",
-            "--new-window", AUTODARTS,
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-        )
-        errors.pop(ident, None)
-    return {"ok": True}
-
-
-@app.post("/api/players/{ident}/finish-login")
-async def finish_login(ident: str):
-    process = native_processes.get(ident)
-    if process and process.returncode is None:
-        raise HTTPException(409, "Bitte alle Fenster dieses Spielerprofils in Chrome schließen, damit die Anmeldung gespeichert werden kann. Danach erneut übernehmen.")
-    await start_player(ident)
-    native_processes.pop(ident, None)
-    return {"ok": True}
-
-
 @app.post("/api/players")
 async def create_player(player: Player):
     name = player.name.strip()
@@ -305,16 +238,13 @@ async def delete(ident: str):
     async with player_lock(ident):
         if not registry.get(ident):
             raise HTTPException(404, "Spieler nicht gefunden")
-        process = native_processes.get(ident)
-        if process and process.returncode is None:
-            raise HTTPException(409, "Bitte zuerst das Chrome-Anmeldefenster schließen.")
-        native_processes.pop(ident, None)
         context = contexts.pop(ident, None)
         if context:
             await context.close()
         registry.items = [p for p in registry.items if p["id"] != ident]
         registry.save()
         shutil.rmtree(DATA / "profiles" / ident, ignore_errors=True)
+        shutil.rmtree(DATA / "profiles" / (ident + "-autodarts"), ignore_errors=True)
         shutil.rmtree(DATA / "profiles" / (ident + "-chromium-backup"), ignore_errors=True)
         errors.pop(ident, None)
     return {"ok": True}

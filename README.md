@@ -13,7 +13,7 @@ Docker in einer Linux-VM auf Proxmox verwenden. Im Projektordner:
 docker compose up -d --build
 ```
 
-Portal unter `http://SERVER-IP:8000` direkt öffnen. Es gibt keine Portal-Passwortabfrage.
+Portal unter `http://SERVER-IP:18080` direkt öffnen. Es gibt keine Portal-Passwortabfrage.
 Spieler hinzufügen und in der eingebetteten Ansicht bei Autodarts anmelden.
 Danach den nächsten Spieler auswählen. Die bisherigen Browser bleiben geöffnet.
 Einladungen werden zunächst manuell in den Spieleransichten angenommen.
@@ -21,30 +21,17 @@ Einladungen werden zunächst manuell in den Spieleransichten angenommen.
 Für GitHub-Builds, fertige Container-Images und Updates mit Portainer siehe
 [DEPLOYMENT.md](DEPLOYMENT.md).
 
-## Google-Anmeldung
+## Anmeldung
 
-Für Proxmox mit Google-Accounts ist eine Linux-VM mit Desktop und Chrome vorgesehen.
-Die [Linux-VM-Anleitung](LINUX-VM.md) enthält Installation, Desktop-Autostart und
-Updates. Standardport dieser Variante ist **18080**.
+Unterstützt wird die direkte Anmeldung mit Autodarts-Zugangsdaten in der
+Spieleransicht. Google-Anmeldung, separate Chrome-Fenster und QR-Anmeldung
+werden nicht unterstützt. Der Betrieb erfolgt über Docker bzw. Portainer;
+auf dem Server ist kein Desktop erforderlich.
 
-Google kann die Anmeldung im automatisierten Portalbrowser ablehnen. Dafür gibt es
-auf einem Desktop mit installiertem Google Chrome den Knopf „Google-Anmeldung in
-Chrome“. Er öffnet auf dem **Portal-Rechner** ein normales, nicht automatisiertes
-Chrome-Fenster mit einem ausschließlich für diesen Spieler angelegten Profil.
-Bei Autodarts anmelden, anschließend alle Fenster dieses Profils schließen und
-im Portal „Anmeldung übernehmen“ drücken. Danach verwendet das Portal Chrome mit
-dem gleichen Profil. Eine vorhandene Chromium-Sitzung bleibt bis zum Löschen des
-Spielers als Backup erhalten. Persönliche Chrome-Standardprofile werden nie geöffnet.
-Der vollständige Google-Login muss vom Spieler getestet werden; die Übernahme eines
-angemeldeten Profils ist noch nicht mit echten Google-Zugangsdaten verifiziert.
-
-Diese Alternative funktioniert aktuell auf macOS und auf Linux mit Chrome und
-Desktop (`DISPLAY`). Im mitgelieferten Docker-Container gibt es keinen Desktop;
-Google-Anmeldung wird dort deshalb nicht als funktionierende Option angeboten.
-Ein QR-Code für eine echte Freigabe vom Handy wäre über Autodarts' OAuth-Geräteflow
-möglich, benötigt aber eine eigene Client-ID und die Freischaltung durch Autodarts.
-Diese Integration ist noch nicht implementiert. Ein QR-Link zur normalen Loginseite
-allein würde nur das Handy anmelden und keine Serversitzung erzeugen.
+Bestehende Chromium-Spielersitzungen bleiben im Datenvolume erhalten. Falls ein
+Spielerprofil aus der früheren Desktop-/Chrome-Variante stammt, wird daneben ein
+neues Chromium-Profil angelegt. Dieser Spieler muss sich mit Autodarts-Zugangsdaten
+neu anmelden; das alte Profil wird beim Update nicht gelöscht.
 
 „Sitzung aktiv“ bedeutet Browser aktiv, nicht nachgewiesener Autodarts-Online-Status.
 Die App deaktiviert Chromium-Hintergrunddrosselung; ob Autodarts die Accounts über

@@ -4,7 +4,7 @@ services:
     pull_policy: always
     restart: unless-stopped
     ports:
-      - "${PORTAL_PORT:-8000}:8000"
+      - "${PORTAL_PORT:-18080}:8000"
     volumes:
       - portal-data:/data
     shm_size: 1gb

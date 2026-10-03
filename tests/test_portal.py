@@ -18,7 +18,6 @@ def client(tmp_path, monkeypatch):
     main.locks.clear()
     main.errors.clear()
     main.starting.clear()
-    main.native_processes.clear()
     monkeypatch.setattr(main, 'automation_settings', {'hosts': ['rot', 'schwarz', 'blau']})
     monkeypatch.setattr(main, "DATA", tmp_path)
     page = SimpleNamespace(url="https://play.autodarts.com/", goto=AsyncMock(),
@@ -83,36 +82,17 @@ def test_validation(client):
     assert client.post("/api/players/unknown/start", headers=ORIGIN).status_code == 404
 
 
-def test_native_login_handoff(client, monkeypatch):
-    monkeypatch.setattr(main, "native_chrome", lambda: "/test/chrome")
-    process = SimpleNamespace(returncode=None)
-    launch = AsyncMock(return_value=process)
-    monkeypatch.setattr(main.asyncio, "create_subprocess_exec", launch)
-    p = client.post("/api/players", json={"name": "Google-Spieler"}, headers=ORIGIN).json()
-    base = f'/api/players/{p["id"]}'
-    assert client.post(base + '/native-login', headers=ORIGIN).status_code == 200
-    args = launch.call_args.args
-    assert not any('automation' in a or 'remote-debugging' in a for a in args)
-    assert '--disable-background-mode' in args
-    assert str(main.DATA / 'profiles' / p['id']) in args[1]
-    assert client.post(base + '/finish-login', headers=ORIGIN).status_code == 409
-    assert client.delete(base, headers=ORIGIN).status_code == 409
-    process.returncode = 0
-    assert client.post(base + '/finish-login', headers=ORIGIN).status_code == 200
-    assert client.launch.call_args.kwargs['channel'] == 'chrome'
-
-
-def test_linux_chrome_requires_desktop(monkeypatch):
-    monkeypatch.setattr(main.sys, 'platform', 'linux')
-    monkeypatch.setattr(main.shutil, 'which', lambda name: '/usr/bin/google-chrome')
-    monkeypatch.delenv('DISPLAY', raising=False)
-    monkeypatch.delenv('WAYLAND_DISPLAY', raising=False)
-    assert main.native_chrome() is None
-    monkeypatch.setenv('WAYLAND_DISPLAY', 'wayland-0')
-    assert main.native_chrome() == '/usr/bin/google-chrome'
-    monkeypatch.delenv('WAYLAND_DISPLAY')
-    monkeypatch.setenv('DISPLAY', ':0')
-    assert main.native_chrome() == '/usr/bin/google-chrome'
+def test_legacy_desktop_profile_uses_fresh_chromium(client):
+    item = {'id': 'legacy', 'name': 'Alt', 'browser': 'chrome'}
+    main.registry.items.append(item)
+    old = main.DATA / 'profiles' / 'legacy'
+    old.mkdir(parents=True)
+    (old / 'existing').write_text('preserved')
+    assert client.post('/api/players/legacy/start', headers=ORIGIN).status_code == 200
+    assert client.launch.call_args.args[0] == str(main.DATA / 'profiles/legacy-autodarts')
+    assert 'channel' not in client.launch.call_args.kwargs
+    assert (old / 'existing').read_text() == 'preserved'
+    assert client.post('/api/players/legacy/native-login', headers=ORIGIN).status_code == 404
 
 
 def test_automation_configuration(client):
