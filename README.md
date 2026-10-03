@@ -23,6 +23,10 @@ Für GitHub-Builds, fertige Container-Images und Updates mit Portainer siehe
 
 ## Google-Anmeldung
 
+Für Proxmox mit Google-Accounts ist eine Linux-VM mit Desktop und Chrome vorgesehen.
+Die [Linux-VM-Anleitung](LINUX-VM.md) enthält Installation, Desktop-Autostart und
+Updates. Standardport dieser Variante ist **18080**.
+
 Google kann die Anmeldung im automatisierten Portalbrowser ablehnen. Dafür gibt es
 auf einem Desktop mit installiertem Google Chrome den Knopf „Google-Anmeldung in
 Chrome“. Er öffnet auf dem **Portal-Rechner** ein normales, nicht automatisiertes

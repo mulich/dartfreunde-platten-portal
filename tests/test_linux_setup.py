@@ -1,0 +1,23 @@
+import importlib.util
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location(
+    'linux_setup', Path(__file__).parent.parent / 'scripts/configure-linux.py')
+setup = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(setup)
+
+
+def test_desktop_service_and_autostart(tmp_path):
+    root = tmp_path / 'Portal mit Leerzeichen %'
+    home = tmp_path / 'home'
+    setup.configure(root, home, 18080)
+    unit = (home / '.config/systemd/user/dartfreunde-portal.service').read_text()
+    desktop = (home / '.config/autostart/dartfreunde-portal.desktop').read_text()
+    assert '--host 0.0.0.0 --port 18080' in unit
+    assert f'WorkingDirectory="{root.as_posix().replace("%", "%%")}"' in unit
+    assert 'DATA_DIR=' in unit and 'PLAYWRIGHT_BROWSERS_PATH=' in unit
+    assert 'PartOf=graphical-session.target' in unit
+    assert '[Install]' not in unit  # Started only with a real desktop session.
+    assert 'Exec=/bin/bash "' in desktop
+    assert 'start-linux-desktop.sh"' in desktop
+    assert '%%' in desktop

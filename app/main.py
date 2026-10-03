@@ -53,7 +53,7 @@ def native_chrome():
     if sys.platform == "darwin":
         path = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
         return str(path) if path.exists() else None
-    if os.getenv("DISPLAY"):
+    if os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY"):
         return shutil.which("google-chrome") or shutil.which("google-chrome-stable")
     return None
 
@@ -246,7 +246,8 @@ async def native_login(ident: str):
         profile.mkdir(parents=True, exist_ok=True)
         native_processes[ident] = await asyncio.create_subprocess_exec(
             executable, f"--user-data-dir={profile}", "--no-first-run",
-            "--no-default-browser-check", "--new-window", AUTODARTS,
+            "--no-default-browser-check", "--disable-background-mode",
+            "--new-window", AUTODARTS,
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
         )
         errors.pop(ident, None)

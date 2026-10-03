@@ -33,10 +33,9 @@ Nach dem ersten erfolgreichen Build lautet der Image-Name:
 ghcr.io/mulich/dartfreunde-platten-portal:latest
 ```
 
-Das Package ist bei der ersten
-Veröffentlichung normalerweise privat. Für ein privates Image im Docker-Rechner
-mit einem GitHub-Zugang mit `read:packages` anmelden. Tokens nicht im Compose-Code
-ablegen. Alternativ kann der Eigentümer das Container-Package öffentlich freigeben.
+Das Container-Package ist öffentlich und kann ohne GitHub-Anmeldung geladen werden.
+Das Quellcode-Repository bleibt privat. Für Google-Anmeldungen in einer Linux-VM
+mit Desktop siehe [LINUX-VM.md](LINUX-VM.md); der Docker-Container enthält keinen Desktop.
 
 ### Docker Compose mit fertigem Image
 
@@ -55,8 +54,7 @@ ausgehen, dass vorhandene Profile automatisch übernommen werden.
 
 ### Portainer
 
-1. Bei einem privaten Image unter **Registries** GHCR (`ghcr.io`) mit einem
-   berechtigten GitHub-Zugang hinzufügen.
+1. Für das öffentliche Image ist kein GHCR-Registry-Zugang erforderlich.
 2. Unter **Stacks → Add stack → Repository** das Projekt-Repository auswählen.
    Für ein privates Repository zusätzlich den Repository-Zugang konfigurieren.
 3. Als Compose path `compose.portainer.yaml` verwenden.

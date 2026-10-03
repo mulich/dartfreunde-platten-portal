@@ -93,12 +93,26 @@ def test_native_login_handoff(client, monkeypatch):
     assert client.post(base + '/native-login', headers=ORIGIN).status_code == 200
     args = launch.call_args.args
     assert not any('automation' in a or 'remote-debugging' in a for a in args)
+    assert '--disable-background-mode' in args
     assert str(main.DATA / 'profiles' / p['id']) in args[1]
     assert client.post(base + '/finish-login', headers=ORIGIN).status_code == 409
     assert client.delete(base, headers=ORIGIN).status_code == 409
     process.returncode = 0
     assert client.post(base + '/finish-login', headers=ORIGIN).status_code == 200
     assert client.launch.call_args.kwargs['channel'] == 'chrome'
+
+
+def test_linux_chrome_requires_desktop(monkeypatch):
+    monkeypatch.setattr(main.sys, 'platform', 'linux')
+    monkeypatch.setattr(main.shutil, 'which', lambda name: '/usr/bin/google-chrome')
+    monkeypatch.delenv('DISPLAY', raising=False)
+    monkeypatch.delenv('WAYLAND_DISPLAY', raising=False)
+    assert main.native_chrome() is None
+    monkeypatch.setenv('WAYLAND_DISPLAY', 'wayland-0')
+    assert main.native_chrome() == '/usr/bin/google-chrome'
+    monkeypatch.delenv('WAYLAND_DISPLAY')
+    monkeypatch.setenv('DISPLAY', ':0')
+    assert main.native_chrome() == '/usr/bin/google-chrome'
 
 
 def test_automation_configuration(client):
