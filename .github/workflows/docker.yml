@@ -26,10 +26,15 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt pytest httpx
+      - name: Install fixture browser
+        run: python -m playwright install --with-deps chromium
       - name: Test
+        # Browser fixtures exercise the board-PC userscript without real accounts.
         run: python -m pytest -q
       - name: Check frontend syntax
-        run: node --check app/static/app.js
+        run: |
+          node --check app/static/app.js
+          node --check app/static/autodarts-local-players.user.js
 
   publish:
     if: github.event_name != 'pull_request'

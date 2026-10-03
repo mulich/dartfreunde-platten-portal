@@ -21,6 +21,10 @@ Einladungen werden zunächst manuell in den Spieleransichten angenommen.
 Für GitHub-Builds, fertige Container-Images und Updates mit Portainer siehe
 [DEPLOYMENT.md](DEPLOYMENT.md).
 
+Für die automatische lokale Zuordnung eingeladener Spieler am Board gibt es ein
+[Tampermonkey-Skript für die neue Lobby](LOCAL-PLAYERS.md). Es wird auf den
+Board-PCs installiert und ergänzt die Einladungsannahme im Docker-Portal.
+
 ## Anmeldung
 
 Unterstützt wird die direkte Anmeldung mit Autodarts-Zugangsdaten in der
@@ -88,7 +92,7 @@ verwenden. Die Automatik nimmt ausschließlich Einladungen der freigegebenen Boa
 
 ```sh
 .venv/bin/pip install pytest httpx
-.venv/bin/python -m pytest -q
+PLAYWRIGHT_BROWSERS_PATH="$PWD/data/browsers" .venv/bin/python -m pytest -q
 ```
 
 Die automatischen Tests prüfen direkten Portalzugriff, getrennte Profilverzeichnisse,
