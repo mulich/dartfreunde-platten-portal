@@ -1,0 +1,9 @@
+services:
+  portal:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+    shm_size: 1gb
