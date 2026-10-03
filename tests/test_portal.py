@@ -106,3 +106,18 @@ def test_automation_configuration(client):
     assert client.put('/api/automation', json={'hosts': [' rot ', 'rot', 'blau']}, headers=ORIGIN).json()['hosts'] == ['rot', 'blau']
     assert (main.DATA / 'automation.json').exists()
     assert client.put(path, json={'enabled': False}, headers=ORIGIN).status_code == 200
+
+
+def test_tournament_board_script_downloads(client):
+    html = client.get('/').text
+    boards = {'blau':'faa2cd5f-5d19-4e68-9749-1b7b95c753d4',
+              'rot':'ad381dc0-7e86-45a1-9fa8-61c8b18ec89b',
+              'schwarz':'6e390006-cdba-4ac5-b0bb-0e03eb880af6'}
+    for name, ident in boards.items():
+        url = f'/static/turnier-{name}.user.js'
+        response = client.get(url)
+        assert response.status_code == 200
+        assert url in html
+        assert ident in response.text
+        assert 'https://turnier.mulich.de' in response.text
+        assert f'https://dartportal.mulich.de{url}' in response.text

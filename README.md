@@ -126,3 +126,12 @@ ist keine garantierte öffentliche Schnittstelle und kann sich bei Autodarts-Upd
 Validiert mit Tests und Browserfixtures anhand der öffentlichen Autodarts-Webversion
 vom 03.10.2026. Ein echter Eingang einer Einladung von euren Board-Accounts muss
 anschließend vor Ort geprüft werden. Das Portal startet keine Spiele automatisch.
+
+## Turnier-Board-Scripts
+
+Im Portal sind separate Tampermonkey-Scripts für Blau, Rot und Schwarz verfügbar.
+Sie verbinden die Board-PCs mit https://turnier.mulich.de/ und verwenden die
+angemeldeten Portal-Spieler für die Einladungsannahme. Einrichtung, feste Board-IDs,
+Spielregeln und Fehlerbehebung: [TURNIER-BOARDS.md](TURNIER-BOARDS.md).
+Die Scheiben-Scripts werden im Browser auf den PCs installiert; das Portal selbst
+startet weiterhin keine Spiele.
