@@ -33,6 +33,7 @@ jobs:
         run: python -m pytest -q
       - name: Check frontend syntax
         run: |
+          node --check app/static/turnier-board.user.js
           node --check app/static/app.js
           node --check app/static/autodarts-local-players.user.js
           node --check app/static/turnier-blau.user.js
