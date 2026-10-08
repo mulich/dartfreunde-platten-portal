@@ -117,7 +117,7 @@ def test_tournament_board_script_downloads(client):
         url = f'/static/turnier-{name}.user.js'
         response = client.get(url)
         assert response.status_code == 200
-        assert "/static/turnier-board.user.js" in html
+        assert url in html
         assert ident in response.text
         assert 'https://turnier.mulich.de' in response.text
         assert f'https://dartportal.mulich.de{url}' in response.text
