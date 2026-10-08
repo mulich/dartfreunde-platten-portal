@@ -6,7 +6,7 @@ https://dartportal.mulich.de/
 ## Update
 
 Beide Container auf die neue Version aktualisieren und auf jedem Board-PC das
-passende Scheiben-Script **2.3.0** installieren bzw. aktualisieren:
+passende Scheiben-Script **2.4.0** installieren bzw. aktualisieren:
 
 - Blau: https://dartportal.mulich.de/static/turnier-blau.user.js
 - Rot: https://dartportal.mulich.de/static/turnier-rot.user.js
@@ -158,3 +158,17 @@ node --check dartabend/static/players.js
 Der Generator schreibt identische Scripts in `dartabend/static` und in das
 benachbarte Accountportal unter `../app/static`. Beide Repositories und Images
 nach Script-Änderungen aktualisieren.
+# Notfall-Neustart einer Lobby (2.4.0)
+
+Im Turnierplaner unter Autodarts an der betroffenen Lobby **Notfall: Lobby neu
+starten** wählen. Reihenfolge: bestätigte Löschung, zwei Sekunden Pause,
+Autodarts-Startseite in den betroffenen Portal-Sitzungen, drei Sekunden Pause,
+neue Lobby und neue Einladungen. Beide Container und die passenden Board-Scripts
+aktualisieren. Auf dem Board-PC im Tampermonkey-Menü die Accountzentrale einmal
+anmelden; ihre vorhandene Website-Anmeldung schützt auch diesen Aufruf.
+Für lokale Tests ist im Menü die Portal-Adresse `http://192.168.178.137:18080`
+wählbar. Die Spieler-Sitzungen müssen aktiv angemeldet sein und die Automatik
+zum Annehmen eingeschaltet haben. Zuordnung über echte Autodarts-Account-IDs,
+ohne Speicherung von Login-Tokens. Bei fehlender Erkennung Sitzung neu laden.
+Andere aktive Matches werden nicht beendet. Bestätigte Neustarts sind dauerhaft
+gegen doppelte Ausführung gesichert (`/data/lobby-recoveries.json`).

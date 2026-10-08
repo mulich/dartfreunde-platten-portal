@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import uuid
+from contextlib import AsyncExitStack
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -13,7 +14,8 @@ from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from playwright.async_api import async_playwright
 from pydantic import BaseModel, Field
-from app.invitations import AutoAcceptor
+from app.invitations import AutoAcceptor, SCAN
+from app.recovery import observe_account
 
 DATA = Path(os.getenv("DATA_DIR", "data"))
 DATA.mkdir(parents=True, exist_ok=True)
@@ -37,6 +39,8 @@ class Registry:
 
 registry = Registry(DATA / "players.json")
 contexts = {}
+account_identities = {}
+recovery_lock = asyncio.Lock()
 locks = {}
 starting = set()
 errors = {}
@@ -72,6 +76,8 @@ async def start_player(ident):
                       "--disable-backgrounding-occluded-windows"],
             )
             contexts[ident] = context
+            account_identities.pop(ident, None)
+            observe_account(context, ident, account_identities)
             page = context.pages[-1] if context.pages else await context.new_page()
             await page.goto(AUTODARTS, wait_until="domcontentloaded", timeout=60000)
             errors.pop(ident, None)
@@ -161,6 +167,73 @@ class AutomationSettings(BaseModel):
 
 class AutoAcceptSetting(BaseModel):
     enabled: bool
+
+
+class LobbyRecovery(BaseModel):
+    operation_id: uuid.UUID
+    board_account: str = Field(min_length=1, max_length=100)
+    lobby_id: str = Field(min_length=1, max_length=80)
+    user_ids: list[str] = Field(max_length=2)
+    completed_match_ids: list[str] = Field(default_factory=list, max_length=64)
+
+
+@app.post('/api/automation/lobby-recovery')
+async def recover_lobby(body: LobbyRecovery):
+    if body.board_account.casefold() not in {host.casefold() for host in automation_settings.get('hosts', [])}:
+        raise HTTPException(409, 'Board-Account in der Accountzentrale nicht freigegeben.')
+    users = sorted(set(body.user_ids))
+    if any(not user or user.startswith('local:') for user in users):
+        raise HTTPException(422, 'Nur echte Autodarts-Accounts zurücksetzen.')
+    operation = str(body.operation_id)
+    fingerprint = [body.board_account.casefold(), body.lobby_id, users]
+    async with recovery_lock:
+        file = DATA / 'lobby-recoveries.json'
+        receipts = json.loads(file.read_text()) if file.exists() else {}
+        receipt = receipts.get(operation, {'fingerprint': fingerprint, 'completed': []})
+        if receipt['fingerprint'] != fingerprint:
+            raise HTTPException(409, 'Neustart-ID gehört zu einer anderen Lobby.')
+        pending = [user for user in users if user not in receipt['completed']]
+        targets = {}
+        for user in pending:
+            matches = [p['id'] for p in registry.items if account_identities.get(p['id']) == user and p['id'] in contexts]
+            if len(matches) != 1:
+                raise HTTPException(409, 'Betroffener Account nicht eindeutig angemeldet. Spieler-Sitzung in der Accountzentrale öffnen oder neu laden.')
+            if not registry.get(matches[0]).get('auto_accept'):
+                raise HTTPException(409, 'Automatisches Annehmen beim betroffenen Spieler zuerst einschalten.')
+            targets[user] = matches[0]
+        async with AsyncExitStack() as stack:
+            for ident in sorted(targets.values()):
+                await stack.enter_async_context(player_lock(ident))
+            pages = {}
+            for user, ident in targets.items():
+                context = contexts.get(ident)
+                if account_identities.get(ident) != user or not context or not context.pages:
+                    raise HTTPException(409, 'Spieler-Sitzung inzwischen gewechselt oder pausiert.')
+                page = context.pages[-1]
+                if urlsplit(page.url).netloc != 'play.autodarts.com':
+                    raise HTTPException(409, 'Spieler zuerst bei Autodarts anmelden.')
+                snapshot = await asyncio.wait_for(page.evaluate(SCAN), timeout=5)
+                path = urlsplit(page.url).path
+                completed = {f'/{prefix}/{match}' for match in body.completed_match_ids for prefix in ('match','matches')}
+                if snapshot['busy'] and path.rstrip('/') != '/lobby/' + body.lobby_id and path.rstrip('/') not in completed:
+                    raise HTTPException(409, 'Spieler ist noch in einem anderen laufenden Match oder einer anderen Lobby. Diese zuerst beenden.')
+                pages[user] = page
+            for user, page in pages.items():
+                ident = targets[user]
+                await page.goto(AUTODARTS, wait_until='domcontentloaded', timeout=15000)
+                if urlsplit(page.url).netloc != 'play.autodarts.com' or urlsplit(page.url).path != '/':
+                    raise HTTPException(409, 'Autodarts-Startseite nicht bestätigt. Anmeldung prüfen.')
+                if acceptor:
+                    acceptor.drawer_checked.pop(ident, None)
+                    acceptor.attempts = {key: value for key, value in acceptor.attempts.items() if key[0] != ident}
+                    acceptor.report(ident, 'Lobby-Neustart: wartet auf neue Einladung')
+                receipt['completed'].append(user)
+                receipts[operation] = receipt
+                # Keep receipts across container restarts so a lost response cannot reset a new game.
+                temp = file.with_suffix('.tmp')
+                temp.write_text(json.dumps(receipts))
+                temp.replace(file)
+        return {'recovered': users, 'operation_id': operation}
 
 
 @app.get('/api/automation')

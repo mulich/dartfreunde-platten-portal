@@ -15,6 +15,7 @@ from app import main
 def client(tmp_path, monkeypatch):
     main.registry = main.Registry(tmp_path / "players.json")
     main.contexts.clear()
+    main.account_identities.clear()
     main.locks.clear()
     main.errors.clear()
     main.starting.clear()
@@ -24,7 +25,7 @@ def client(tmp_path, monkeypatch):
         screenshot=AsyncMock(return_value=b"test-image"),
         mouse=SimpleNamespace(click=AsyncMock(), move=AsyncMock(), wheel=AsyncMock()),
         keyboard=SimpleNamespace(insert_text=AsyncMock(), press=AsyncMock()))
-    launch = AsyncMock(side_effect=lambda *a, **k: SimpleNamespace(pages=[page], close=AsyncMock()))
+    launch = AsyncMock(side_effect=lambda *a, **k: SimpleNamespace(pages=[page], close=AsyncMock(), on=lambda *args: None))
     runtime = SimpleNamespace(chromium=SimpleNamespace(launch_persistent_context=launch), stop=AsyncMock())
     monkeypatch.setattr(main, "async_playwright", lambda: SimpleNamespace(start=AsyncMock(return_value=runtime)))
     with TestClient(main.app) as c:
@@ -34,6 +35,52 @@ def client(tmp_path, monkeypatch):
 
 
 ORIGIN = {"origin": "http://testserver"}
+
+
+def test_emergency_recovery_only_targets_exact_accounts_and_is_idempotent(client):
+    ids = []
+    pages = []
+    for name in ['Alias A', 'Alias B', 'Unrelated']:
+        player = client.post('/api/players', json={'name':name}, headers=ORIGIN).json()
+        main.registry.get(player['id'])['auto_accept'] = True
+        ids.append(player['id'])
+        page = SimpleNamespace(url='https://play.autodarts.com/lobby/old-lobby',
+                               evaluate=AsyncMock(return_value={'busy':True,'invites':[]}))
+        async def navigate(url, p=page, **kwargs):
+            p.url = url
+        page.goto = AsyncMock(side_effect=navigate)
+        pages.append(page)
+        main.contexts[player['id']] = SimpleNamespace(pages=[page], close=AsyncMock())
+        main.account_identities[player['id']] = 'user-'+str(len(ids))
+    payload = {'operation_id':'7f547e3b-86c4-47ca-9c9c-749527e691ee', 'board_account':'blau',
+               'lobby_id':'old-lobby','user_ids':['user-1','user-2']}
+    url = '/api/automation/lobby-recovery'
+    assert client.post(url, json=payload, headers=ORIGIN).status_code == 200
+    main.account_identities.clear()  # An acknowledged retry must not touch a new match/session.
+    assert client.post(url, json=payload, headers=ORIGIN).status_code == 200
+    for page in pages[:2]:
+        page.goto.assert_awaited_once_with(main.AUTODARTS,wait_until='domcontentloaded',timeout=15000)
+    pages[2].goto.assert_not_awaited()
+    assert client.post(url,json={**payload,'user_ids':['user-3']},headers=ORIGIN).status_code == 409
+
+
+def test_emergency_recovery_refuses_unknown_accounts_or_other_live_game(client):
+    p = client.post('/api/players', json={'name':'A'}, headers=ORIGIN).json()
+    main.registry.get(p['id'])['auto_accept'] = True
+    page = SimpleNamespace(url='https://play.autodarts.com/matches/live-game',
+        evaluate=AsyncMock(return_value={'busy':True,'invites':[]}),goto=AsyncMock())
+    main.contexts[p['id']] = SimpleNamespace(pages=[page], close=AsyncMock())
+    payload = {'operation_id':'7f547e3b-86c4-47ca-9c9c-749527e691ee','board_account':'blau',
+               'lobby_id':'old-lobby','user_ids':['user-1']}
+    assert client.post('/api/automation/lobby-recovery',json=payload,headers=ORIGIN).status_code == 409
+    main.account_identities[p['id']] = 'user-1'
+    assert client.post('/api/automation/lobby-recovery',json=payload,headers=ORIGIN).status_code == 409
+    page.goto.assert_not_awaited()
+    page.url = 'https://play.autodarts.com/matches/imported-completed-game'
+    async def navigate(url, **kwargs):
+        page.url = url
+    page.goto.side_effect = navigate
+    assert client.post('/api/automation/lobby-recovery',json={**payload,'completed_match_ids':['imported-completed-game']},headers=ORIGIN).status_code == 200
 
 
 def test_direct_access_and_origin(client):
