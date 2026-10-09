@@ -104,7 +104,7 @@ async def restore():
 async def lifespan(app):
     global playwright, acceptor
     playwright = await async_playwright().start()
-    acceptor = AutoAcceptor(contexts, registry, locks, automation_settings)
+    acceptor = AutoAcceptor(contexts, registry, locks, automation_settings, account_identities)
     task = asyncio.create_task(restore())
     automation_task = asyncio.create_task(acceptor.run())
     yield
@@ -225,6 +225,7 @@ async def recover_lobby(body: LobbyRecovery):
                     raise HTTPException(409, 'Autodarts-Startseite nicht bestätigt. Anmeldung prüfen.')
                 if acceptor:
                     acceptor.drawer_checked.pop(ident, None)
+                    acceptor.awaiting.pop(ident, None)
                     acceptor.attempts = {key: value for key, value in acceptor.attempts.items() if key[0] != ident}
                     acceptor.report(ident, 'Lobby-Neustart: wartet auf neue Einladung')
                 receipt['completed'].append(user)
@@ -264,6 +265,7 @@ async def set_auto_accept(ident: str, setting: AutoAcceptSetting):
     registry.save()
     if acceptor:
         acceptor.drawer_checked.pop(ident, None)
+        acceptor.awaiting.pop(ident, None)
         # Enabling again explicitly allows retrying an invitation which failed.
         acceptor.attempts = {key: value for key, value in acceptor.attempts.items() if key[0] != ident}
         acceptor.report(ident, 'Wartet auf Lobby-Einladung' if setting.enabled else 'Automatik aus')

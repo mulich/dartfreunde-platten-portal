@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from app.invitations import AutoAcceptor, sender_allowed
+from app.invitations import AutoAcceptor, sender_allowed, joined
 
 
 INVITE = {'id': 'notice-1', 'sender': 'Rot', 'sender_id': 'user-rot', 'lobby_id': 'lobby-1'}
@@ -19,10 +19,16 @@ class Buttons:
         return self.buttons[index]
 
 
-def setup(invites=None, busy=False, enabled=True, hosts=None):
+def setup(invites=None, busy=False, enabled=True, hosts=None, confirmed=True):
     item = {'id': 'player', 'auto_accept': enabled}
     page = SimpleNamespace(url='https://play.autodarts.com/',
         evaluate=AsyncMock(return_value={'invites': invites if invites is not None else [INVITE], 'busy': busy}))
+    async def scan(script):
+        in_lobby = '/lobby/' in page.url
+        return {'invites':invites if invites is not None else [INVITE],'busy':busy or in_lobby,
+                'path':'/lobby/lobby-1' if in_lobby else '/',
+                'lobby':{'id':'lobby-1','host_id':'user-rot','players':[{'user_id':'own-account','pending':not confirmed}]} if in_lobby else None}
+    page.evaluate.side_effect = scan
     async def clicked(**kwargs):
         page.url = 'https://play.autodarts.com/lobby/lobby-1'
     button = SimpleNamespace(get_attribute=AsyncMock(return_value='notice-1'),
@@ -34,7 +40,7 @@ def setup(invites=None, busy=False, enabled=True, hosts=None):
     page.wait_for_url = AsyncMock(side_effect=wait)
     registry = SimpleNamespace(get=lambda ident: item)
     acceptor = AutoAcceptor({'player': SimpleNamespace(pages=[page])}, registry, {},
-                            {'hosts': hosts if hosts is not None else ['rot', 'schwarz', 'blau']})
+                            {'hosts': hosts if hosts is not None else ['rot', 'schwarz', 'blau']}, {'player':'own-account'})
     return acceptor, page, button
 
 
@@ -84,3 +90,36 @@ def test_login_page_and_paused_session_do_not_click():
     acceptor.contexts.clear()
     asyncio.run(acceptor.tick('player'))
     assert acceptor.status['player']['message'] == 'Sitzung ist pausiert'
+
+
+def test_open_lobby_is_not_accepted_and_late_confirmation_is_observed(monkeypatch):
+    acceptor, page, button = setup(confirmed=False)
+    async def no_delay(*args):
+        return None
+    monkeypatch.setattr('app.invitations.asyncio.sleep',no_delay)
+    asyncio.run(acceptor.tick('player'))
+    assert 'last_accepted' not in acceptor.status['player']
+    assert not acceptor.attempts[('player','notice-1')]['done']
+    asyncio.run(acceptor.tick('player'))
+    button.click.assert_awaited_once()
+    assert 'ausstehend' in acceptor.status['player']['message']
+    page.evaluate.side_effect = None
+    page.evaluate.return_value = {'busy':True,'invites':[],'path':'/lobby/lobby-1',
+        'lobby':{'id':'lobby-1','host_id':'user-rot','players':[{'user_id':'own-account','pending':False}]}}
+    asyncio.run(acceptor.tick('player'))
+    assert acceptor.attempts[('player','notice-1')]['done']
+    assert acceptor.status['player']['last_accepted'] > 0
+    button.click.assert_awaited_once()
+
+
+def test_join_confirmation_requires_exact_lobby_host_account_and_pending_flag():
+    snapshot={'path':'/lobby/lobby-1','lobby':{'id':'lobby-1','host_id':'user-rot','players':[{'user_id':'own','pending':False}]}}
+    assert joined(snapshot,INVITE,'own')
+    assert not joined(snapshot,INVITE,'someone-else')
+    assert not joined({**snapshot,'path':'/lobby/other'},INVITE,'own')
+    for change in [{'id':'other'},{'host_id':'other'},{'players':[{'user_id':'own','pending':True}]},
+                   {'players':[{'user_id':'own'}]},{'players':[{'user_id':'own','pending':False}]*2}]:
+        assert not joined({**snapshot,'lobby':{**snapshot['lobby'],**change}},INVITE,'own')
+    match={'path':'/matches/lobby-1','match':{'id':'lobby-1','players':[{'user_id':'own'}]}}
+    assert joined(match,INVITE,'own')
+    assert not joined({**match,'match':{**match['match'],'id':'unrelated-match'}},INVITE,'own')

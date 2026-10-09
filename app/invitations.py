@@ -11,13 +11,32 @@ SCAN = r"""() => {
   const invites = new Map();
   document.querySelectorAll('[data-portal-invitation]').forEach(el => delete el.dataset.portalInvitation);
   let finished = null;
-  const visible = el => !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
-  for (const el of document.querySelectorAll('button, main, [role="main"]')) {
+  let lobbyState = null, matchState = null;
+  const players = list => list.map(p => ({user_id:p.userId || p.user?.id || null, pending:p.isPending}));
+  const currentFiber = el => {
     const key = Object.keys(el).find(k => k.startsWith('__reactFiber$'));
     let fiber = key ? el[key] : null;
+    const root = node => {let n=node;while(n?.return)n=n.return;return n;};
+    const top = root(fiber);
+    if(top?.stateNode?.current && top.stateNode.current!==top) {
+      const alternate = fiber?.alternate;
+      return root(alternate)===top.stateNode.current ? alternate : null;
+    }
+    return fiber;
+  };
+  const visible = el => !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
+  for (const el of document.querySelectorAll('button, main, [role="main"]')) {
+    let fiber = currentFiber(el);
     let notification = null;
     for (let depth=0; fiber && depth<80; depth++, fiber=fiber.return) {
       const props = fiber.memoizedProps;
+      for(const value of [props?.lobby,props?.value]) {
+        if(value?.id && value.host?.id && Array.isArray(value.players) && typeof value.isPrivate==='boolean')
+          lobbyState={id:value.id,host_id:value.host.id,players:players(value.players)};
+      }
+      const game=props?.value;
+      if(game?.match?.id && game.state && Array.isArray(game.state.players))
+        matchState={id:game.match.id,players:players(game.state.players)};
       if (props?.value?.state && typeof props.value.state.finished === 'boolean')
         finished = props.value.state.finished;
       const n = props?.notification;
@@ -36,7 +55,7 @@ SCAN = r"""() => {
   }
   const match = /^\/(match|matches)(\/|$)/.test(location.pathname);
   const lobby = /^\/lobby(\/|$)/.test(location.pathname);
-  return {invites: [...invites.values()], busy: lobby || (match && finished !== true)};
+  return {invites: [...invites.values()], busy: lobby || (match && finished !== true), path:location.pathname, lobby:lobbyState, match:matchState};
 }"""
 
 
@@ -46,13 +65,36 @@ def sender_allowed(invite, hosts):
                for key in ('sender', 'sender_id') if invite.get(key))
 
 
+def joined(snapshot, invite, user_id):
+    if not user_id:
+        return False
+    path = snapshot.get('path', '').rstrip('/')
+    lobby = snapshot.get('lobby')
+    if path == '/lobby/' + invite['lobby_id'] and lobby and lobby.get('id') == invite['lobby_id'] and lobby.get('host_id') == invite['sender_id']:
+        own = [p for p in lobby.get('players', []) if p.get('user_id') == user_id]
+        return len(own) == 1 and own[0].get('pending') is False
+    match = snapshot.get('match')
+    if path in ('/match/'+invite['lobby_id'], '/matches/'+invite['lobby_id']) and match and match.get('id') == invite['lobby_id']:
+        own = [p for p in match.get('players', []) if p.get('user_id') == user_id]
+        return len(own) == 1 and own[0].get('pending') is not True
+    return False
+
+
 class AutoAcceptor:
-    def __init__(self, contexts, registry, locks, settings):
+    def __init__(self, contexts, registry, locks, settings, identities=None):
         self.contexts, self.registry = contexts, registry
         self.locks, self.settings = locks, settings
         self.status = {}
         self.attempts = {}
         self.drawer_checked = {}
+        self.identities = identities if identities is not None else {}
+        self.awaiting = {}
+
+    def confirm(self, ident, invite, attempt):
+        attempt['done'] = True
+        self.awaiting.pop(ident, None)
+        self.report(ident, 'Lobby-Beitritt bestätigt', sender=invite['sender'],
+                    last_accepted=time.time(), last_sender=invite['sender'], lobby_id=invite['lobby_id'])
 
     def report(self, ident, message, **extra):
         self.status[ident] = {**self.status.get(ident, {}), 'message': message, **extra}
@@ -60,6 +102,7 @@ class AutoAcceptor:
     async def tick(self, ident):
         item = self.registry.get(ident)
         if not item or not item.get('auto_accept'):
+            self.awaiting.pop(ident, None)
             self.drawer_checked.pop(ident, None)
             self.report(ident, 'Automatik aus')
             return
@@ -76,7 +119,26 @@ class AutoAcceptor:
             self.report(ident, 'Wartet auf Autodarts-Anmeldung')
             return
         snapshot = await asyncio.wait_for(page.evaluate(SCAN), timeout=5)
-        if snapshot['busy']:
+        pending = self.awaiting.get(ident)
+        if pending:
+            invite, attempt, account = pending
+            if self.identities.get(ident) != account or not sender_allowed(invite, hosts):
+                self.awaiting.pop(ident, None)
+                self.report(ident, 'Account oder Freigabe geändert – Beitritt nicht bestätigt')
+                return
+            if joined(snapshot, invite, account):
+                self.confirm(ident, invite, attempt)
+                return
+            if urlsplit(page.url).path.rstrip('/') == '/lobby/' + invite['lobby_id']:
+                self.report(ident, 'Lobby geöffnet, Beitritt noch ausstehend – Spieleransicht prüfen', sender=invite['sender'])
+                # Retry only a still-visible native invitation for this exact lobby.
+                snapshot['invites'] = [n for n in snapshot['invites'] if n['id'] == invite['id'] and n['lobby_id'] == invite['lobby_id']]
+                if not snapshot['invites']:
+                    return
+            else:
+                self.awaiting.pop(ident, None)
+                pending = None
+        if snapshot['busy'] and not pending:
             self.report(ident, 'In Lobby oder Match – wartet auf Abschluss')
             return
         if not snapshot['invites'] and self.drawer_checked.get(ident) != page.url:
@@ -101,6 +163,10 @@ class AutoAcceptor:
             if not sender_allowed(invite, hosts):
                 self.report(ident, 'Einladung ignoriert: Absender nicht freigegeben', sender=invite['sender'])
                 continue
+            account = self.identities.get(ident)
+            if not account:
+                self.report(ident, 'Account nicht erkannt – Autodarts-Sitzung neu laden und anmelden')
+                return
             key = (ident, invite['id'])
             previous = self.attempts.get(key)
             if previous and (previous['done'] or previous['count'] >= 3 or time.monotonic() - previous['at'] < 30):
@@ -113,7 +179,6 @@ class AutoAcceptor:
             # even if an earlier scan was already in flight.
             if not item.get('auto_accept') or not sender_allowed(invite, self.settings.get('hosts', [])):
                 return
-            before = page.url
             buttons = page.locator('button[data-portal-invitation]')
             target = None
             for index in range(await buttons.count()):
@@ -127,16 +192,32 @@ class AutoAcceptor:
             try:
                 if not item.get('auto_accept') or not sender_allowed(invite, self.settings.get('hosts', [])):
                     return
-                if (await asyncio.wait_for(page.evaluate(SCAN), timeout=5))['busy']:
+                fresh = await asyncio.wait_for(page.evaluate(SCAN), timeout=5)
+                if fresh['busy'] and not (pending and urlsplit(page.url).path.rstrip('/') == '/lobby/' + invite['lobby_id']):
                     return
+                if self.identities.get(ident) != account or not any(n['id'] == invite['id'] and n['lobby_id'] == invite['lobby_id'] and sender_allowed(n, self.settings.get('hosts', [])) for n in fresh['invites']):
+                    return
+                if await target.get_attribute('data-portal-invitation') != invite['id']:
+                    return
+                self.awaiting[ident] = (invite, attempt, account)
                 await target.click(timeout=3000)
-                await page.wait_for_url(lambda url: (
-                    urlsplit(str(url)).path == '/lobby/' + invite['lobby_id'] or
-                    (str(url) != before and urlsplit(str(url)).path.startswith(('/match/', '/matches/')))
-                ), timeout=6000)
-                attempt['done'] = True
-                self.report(ident, 'Lobby-Beitritt bestätigt', sender=invite['sender'],
-                            last_accepted=time.time(), last_sender=invite['sender'], lobby_id=invite['lobby_id'])
+                # Navigation alone does not mean the invited player was accepted.
+                # Read committed native participant state; never invoke React callbacks.
+                deadline = time.monotonic() + 6
+                for _ in range(24):
+                    if not item.get('auto_accept') or self.identities.get(ident) != account or not sender_allowed(invite, self.settings.get('hosts', [])):
+                        return
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    verified = await asyncio.wait_for(page.evaluate(SCAN), timeout=min(5, remaining))
+                    if self.identities.get(ident) != account:
+                        return
+                    if joined(verified, invite, account):
+                        self.confirm(ident, invite, attempt)
+                        return
+                    await asyncio.sleep(min(0.25, max(0, deadline-time.monotonic())))
+                self.report(ident, 'Beitritt nicht bestätigt – bitte Spieleransicht prüfen', sender=invite['sender'])
             except Exception:
                 self.report(ident, 'Beitritt nicht bestätigt – bitte Spieleransicht prüfen', sender=invite['sender'])
             # Only one invitation per player per cycle. The next cycle rechecks

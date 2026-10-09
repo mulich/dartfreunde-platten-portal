@@ -1,12 +1,20 @@
 # Autodarts: Spieleraccounts und lokale Gäste
 
+Version 2.4.1 korrigiert die Beitrittsprüfung der Accountzentrale: Nur der eigene,
+tatsächlich angenommene Account in der passenden Lobby bestätigt den Beitritt.
+Die Lobby-URL allein reicht nicht. Spätere Bestätigungen bleiben beobachtet;
+ausstehende Annahmen werden ausdrücklich angezeigt. Leere lokale Script-Caches
+werden aus der bestehenden Lobby rekonstruiert; bei unklarem Einladungsstatus
+wird zum Notfall-Neustart aufgefordert. Beide Container und Board-Scripts
+aktualisieren, Spieler-Sitzungen bei fehlender Account-Erkennung neu laden.
+
 Turnierplaner: https://turnier.mulich.de/ · Accounts und Downloads:
 https://dartportal.mulich.de/
 
 ## Update
 
 Beide Container auf die neue Version aktualisieren und auf jedem Board-PC das
-passende Scheiben-Script **2.4.0** installieren bzw. aktualisieren:
+passende Scheiben-Script **2.4.1** installieren bzw. aktualisieren:
 
 - Blau: https://dartportal.mulich.de/static/turnier-blau.user.js
 - Rot: https://dartportal.mulich.de/static/turnier-rot.user.js
@@ -158,7 +166,7 @@ node --check dartabend/static/players.js
 Der Generator schreibt identische Scripts in `dartabend/static` und in das
 benachbarte Accountportal unter `../app/static`. Beide Repositories und Images
 nach Script-Änderungen aktualisieren.
-# Notfall-Neustart einer Lobby (2.4.0)
+# Notfall-Neustart einer Lobby (2.4.1)
 
 Im Turnierplaner unter Autodarts an der betroffenen Lobby **Notfall: Lobby neu
 starten** wählen. Reihenfolge: bestätigte Löschung, zwei Sekunden Pause,
