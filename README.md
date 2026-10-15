@@ -21,6 +21,28 @@ Einladungen werden zunächst manuell in den Spieleransichten angenommen.
 Für GitHub-Builds, fertige Container-Images und Updates mit Portainer siehe
 [DEPLOYMENT.md](DEPLOYMENT.md).
 
+## Turnierteilnehmer und Pause
+
+Beim Erstellen eines Turniers fordert der Turnierplaner die bestehenden
+Account-Sitzungen der Teilnehmer im Portal an und schaltet deren Einladungsannahme
+für die freigegebenen Board-Accounts ein. Er sucht zuerst nach dem exakten
+Autodarts-Accountnamen (Groß-/Kleinschreibung egal), danach nach dem Spielernamen.
+Mehrdeutige Namen werden nicht automatisch ausgewählt. Fehlende Sitzungen zuerst
+im Portal anlegen und einmal bei Autodarts anmelden. Abgelaufene Anmeldungen
+müssen erneut bestätigt werden; der automatische Start ersetzt keinen Login.
+
+**Alle pausieren** oben rechts schließt alle Portal-Browser. Die Anmeldungen und
+Profile bleiben gespeichert. Die Pause überlebt einen Container-Neustart;
+einzelne Sitzungen lassen sich durch Auswahl wieder öffnen. Bereits bestätigte
+Aktivierungsanfragen desselben Turniers heben diese Pause nicht auf. Ein neues
+Turnier kann seine Teilnehmer wieder starten. Die Pause beendet kein Spiel an
+einer physischen Scheibe.
+
+Der Planer verwendet `DARTPORTAL_URL`, im bestehenden Netz standardmäßig
+`http://192.168.178.137:18080`. Die Adresse muss vom Turnier-Container erreichbar
+sein. Beide Container aktualisieren; zusätzliche Board-Script-Updates sind für
+diese Funktion nicht erforderlich.
+
 Für die automatische lokale Zuordnung eingeladener Spieler am Board gibt es ein
 [Tampermonkey-Skript für die neue Lobby](LOCAL-PLAYERS.md). Es wird auf den
 Board-PCs installiert und ergänzt die Einladungsannahme im Docker-Portal.

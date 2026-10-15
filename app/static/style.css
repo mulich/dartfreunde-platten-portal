@@ -4,3 +4,5 @@
 textarea{font:inherit;width:100%;resize:vertical;background:var(--bg);color:#fff;border:1px solid var(--line);border-radius:8px;padding:10px}.board-settings{margin-top:24px}.board-settings p{font-size:11px}.board-settings button{margin-top:8px}#automation-panel{padding:14px 18px;margin-bottom:18px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}.auto-switch{margin:0;display:flex;align-items:center;gap:10px;color:#edf5fd;font-weight:600}.auto-switch input{width:18px;height:18px;accent-color:var(--accent)}#auto-status,#auto-last{color:var(--muted);font-size:12px;margin:6px 0 0}
 
 @media(max-width:480px){header{padding:0 12px;gap:10px}.brand{display:flex;align-items:center;gap:8px}.brand span{font-size:14px;max-width:145px}header .quiet{font-size:12px;padding:8px}.login-card .brand span{max-width:none}.login-card{padding:28px}}
+
+#pause-all{margin-left:auto;white-space:nowrap}

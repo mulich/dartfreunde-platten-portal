@@ -15,6 +15,15 @@ $('screen').onpaste=e=>{e.preventDefault();send({type:'text',text:e.clipboardDat
 $('text-form').onsubmit=e=>{e.preventDefault();send({type:'text',text:$('text').value});$('text').value=''};
 for(const name of ['home','back','reload'])$(name).onclick=()=>send({type:name});
 $('stop').onclick=async()=>{const id=selected;disconnect();try{await api('players/'+id+'/stop','POST');$('connection').textContent='Pausiert';$('loading').hidden=false;$('loading').textContent='Spieler auswählen, um die Sitzung wieder zu öffnen.';refresh()}catch(e){notice(e.message)}};
+$('pause-all').onclick=async()=>{
+  const button=$('pause-all');button.disabled=true;
+  try{
+    await api('players/pause-all','POST');disconnect();selected=null;
+    $('viewer').hidden=true;$('empty').hidden=false;renderAutomation();
+    $('title').textContent='Alle Sitzungen pausiert';$('connection').textContent='Pausiert';
+    notice('Alle Sitzungen pausiert. Gespeicherte Anmeldungen bleiben erhalten.');await refresh();
+  }catch(e){notice(e.message);await refresh();}finally{button.disabled=false;}
+};
 $('delete').onclick=async()=>{const p=players.find(p=>p.id===selected);if(!confirm(`Sitzung von ${p?.name} und gespeicherte Anmeldung dauerhaft entfernen?`))return;const id=selected;disconnect();try{await api('players/'+id,'DELETE');selected=null;renderAutomation();$('viewer').hidden=true;$('empty').hidden=false;$('title').textContent='Alle Accounts. Ein Fenster.';$('connection').textContent='Keine Sitzung ausgewählt';refresh()}catch(e){notice(e.message)}};
 refresh();setInterval(refresh,5000);
 

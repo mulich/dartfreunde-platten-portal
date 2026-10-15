@@ -48,6 +48,9 @@ playwright = None
 SETTINGS_FILE = DATA / 'automation.json'
 automation_settings = json.loads(SETTINGS_FILE.read_text()) if SETTINGS_FILE.exists() else {'hosts': ['rot', 'schwarz', 'blau']}
 acceptor = None
+activation_tasks = set()
+activation_inflight = set()
+activation_generation = 0
 
 
 def player_profile(item):
@@ -62,6 +65,8 @@ def player_lock(ident):
 
 async def start_player(ident):
     async with player_lock(ident):
+        if registry.get(ident) and registry.get(ident).get('paused'):
+            return
         if ident in contexts:
             return
         if not registry.get(ident):
@@ -80,8 +85,12 @@ async def start_player(ident):
             observe_account(context, ident, account_identities)
             page = context.pages[-1] if context.pages else await context.new_page()
             await page.goto(AUTODARTS, wait_until="domcontentloaded", timeout=60000)
+            if registry.get(ident).get('paused'):
+                contexts.pop(ident, None)
+                await context.close()
+                return
             errors.pop(ident, None)
-        except Exception:
+        except BaseException:
             context = contexts.pop(ident, None)
             if context:
                 await context.close()
@@ -110,6 +119,9 @@ async def lifespan(app):
     yield
     task.cancel()
     automation_task.cancel()
+    for pending in list(activation_tasks):
+        pending.cancel()
+    await asyncio.gather(*activation_tasks, return_exceptions=True)
     await asyncio.gather(task, automation_task, return_exceptions=True)
     await asyncio.gather(*(c.close() for c in contexts.values()), return_exceptions=True)
     await playwright.stop()
@@ -167,6 +179,97 @@ class AutomationSettings(BaseModel):
 
 class AutoAcceptSetting(BaseModel):
     enabled: bool
+
+
+class TournamentParticipant(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    account_name: str = Field(min_length=1, max_length=60)
+
+
+class TournamentSessions(BaseModel):
+    tournament_id: uuid.UUID
+    players: list[TournamentParticipant] = Field(max_length=64)
+
+
+@app.post('/api/automation/tournament-sessions', status_code=202)
+async def tournament_sessions(body: TournamentSessions):
+    file = DATA / 'tournament-activations.json'
+    receipts = json.loads(file.read_text()) if file.exists() else {}
+    generation = activation_generation
+    targets, results = [], []
+    for player in body.players:
+        account = player.account_name.strip().casefold()
+        key = str(body.tournament_id)+':'+account
+        matches = [p for p in registry.items if p['name'].strip().casefold() == account]
+        if not matches:
+            matches = [p for p in registry.items if p['name'].strip().casefold() == player.name.strip().casefold()]
+        if len(matches) != 1 or not account:
+            results.append({'name': player.name, 'status': 'ambiguous' if matches else 'missing'})
+            continue
+        item = matches[0]
+        if key in receipts or key in activation_inflight:
+            results.append({'name': player.name, 'status': 'already_requested'})
+            continue
+        item.pop('paused', None)
+        item['auto_accept'] = bool(automation_settings.get('hosts'))
+        activation_inflight.add(key)
+        targets.append((key, item['id']))
+        results.append({'name': player.name, 'status': 'scheduled'})
+    registry.save()
+
+    async def activate_targets():
+        for key, ident in targets:
+            try:
+                if generation != activation_generation:
+                    continue
+                await start_player(ident)
+                if ident in contexts and generation == activation_generation:
+                    saved = json.loads(file.read_text()) if file.exists() else {}
+                    saved[key] = True
+                    temp = file.with_suffix('.tmp')
+                    temp.write_text(json.dumps(saved))
+                    temp.replace(file)
+            except Exception:
+                logging.warning('Turniersitzung %s konnte nicht gestartet werden', ident)
+            finally:
+                activation_inflight.discard(key)
+    if targets:
+        task = asyncio.create_task(activate_targets())
+        activation_tasks.add(task)
+        def completed(task):
+            activation_tasks.discard(task)
+            for key, _ in targets:
+                activation_inflight.discard(key)
+        task.add_done_callback(completed)
+    return {'players': results}
+
+
+@app.post('/api/players/pause-all')
+async def pause_all():
+    global activation_generation
+    activation_generation += 1
+    file = DATA / 'tournament-activations.json'
+    receipts = json.loads(file.read_text()) if file.exists() else {}
+    receipts.update({key: True for key in activation_inflight})
+    temp = file.with_suffix('.tmp')
+    temp.write_text(json.dumps(receipts))
+    temp.replace(file)
+    for item in registry.items:
+        item['paused'] = True
+    registry.save()
+    failed = []
+    for item in list(registry.items):
+        async with player_lock(item['id']):
+            context = contexts.pop(item['id'], None)
+            if context:
+                try:
+                    await context.close()
+                except Exception:
+                    contexts[item['id']] = context
+                    failed.append(item['id'])
+    if failed:
+        raise HTTPException(503, 'Einige Sitzungen konnten nicht pausiert werden. Erneut versuchen.')
+    return {'paused': len(registry.items)}
 
 
 class LobbyRecovery(BaseModel):
@@ -287,6 +390,10 @@ async def create_player(player: Player):
 
 @app.post("/api/players/{ident}/start")
 async def start(ident: str):
+    item = registry.get(ident)
+    if item:
+        item.pop('paused', None)
+        registry.save()
     try:
         await start_player(ident)
     except HTTPException:
@@ -300,6 +407,8 @@ async def start(ident: str):
 async def stop(ident: str):
     if not registry.get(ident):
         raise HTTPException(404, "Spieler nicht gefunden")
+    registry.get(ident)['paused'] = True
+    registry.save()
     async with player_lock(ident):
         context = contexts.pop(ident, None)
         if context:

@@ -1,4 +1,5 @@
 import os
+import asyncio
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,6 +20,7 @@ def client(tmp_path, monkeypatch):
     main.locks.clear()
     main.errors.clear()
     main.starting.clear()
+    main.activation_inflight.clear()
     monkeypatch.setattr(main, 'automation_settings', {'hosts': ['rot', 'schwarz', 'blau']})
     monkeypatch.setattr(main, "DATA", tmp_path)
     page = SimpleNamespace(url="https://play.autodarts.com/", goto=AsyncMock(),
@@ -175,3 +177,60 @@ def test_shared_tournament_board_script_download(client):
     assert response.status_code == 200
     assert 'function identifyBoard()' in response.text
     assert 'https://dartportal.mulich.de/static/turnier-board.user.js' in response.text
+
+
+def test_tournament_activates_only_matching_existing_sessions_and_pause_is_durable(client):
+    anna = client.post('/api/players',json={'name':'Anna-Account'},headers=ORIGIN).json()
+    other = client.post('/api/players',json={'name':'Other'},headers=ORIGIN).json()
+    body = {'tournament_id':'56fd5829-c4ec-46d8-837f-bf3e92f2e97f',
+            'players':[{'name':'Anna','account_name':'anna-account'},{'name':'Missing','account_name':'missing'}]}
+    url = '/api/automation/tournament-sessions'
+    assert client.post(url,json=body).status_code == 403
+    response = client.post(url,json=body,headers=ORIGIN)
+    assert response.status_code == 202
+    assert [p['status'] for p in response.json()['players']] == ['scheduled','missing']
+    for _ in range(20):
+        if client.get('/api/players').json()[0]['status'] == 'running': break
+    assert anna['id'] in main.contexts and other['id'] not in main.contexts
+    assert main.registry.get(anna['id'])['auto_accept'] is True
+    launches = client.launch.call_count
+    assert client.post('/api/players/pause-all',headers=ORIGIN).status_code == 200
+    assert not main.contexts
+    assert all(p['paused'] for p in main.Registry(main.registry.path).items)
+    asyncio.run(main.restore())
+    assert not main.contexts and client.launch.call_count == launches
+    # A duplicate delivery of this same tournament must not undo All paused.
+    again = client.post(url,json=body,headers=ORIGIN).json()
+    assert again['players'][0]['status'] == 'already_requested'
+    assert not main.contexts
+    assert client.post('/api/players/pause-all',headers=ORIGIN).status_code == 200
+    assert client.post(f"/api/players/{anna['id']}/start",headers=ORIGIN).status_code == 200
+    assert anna['id'] in main.contexts
+    assert 'id="pause-all"' in client.get('/').text
+
+
+def test_pause_all_waits_for_inflight_start_then_closes_it(client):
+    p = client.post('/api/players',json={'name':'Anna'},headers=ORIGIN).json()
+    async def exercise():
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def navigate(*args, **kwargs):
+            entered.set()
+            await release.wait()
+        client.page.goto.side_effect = navigate
+        launch = asyncio.create_task(main.start_player(p['id']))
+        await entered.wait()
+        pause = asyncio.create_task(main.pause_all())
+        await asyncio.sleep(0)
+        release.set()
+        await asyncio.gather(launch,pause)
+        assert p['id'] not in main.contexts
+        assert main.registry.get(p['id'])['paused'] is True
+    asyncio.run(exercise())
+
+
+def test_tournament_session_duplicates_are_not_guessed(client):
+    for _ in range(2): client.post('/api/players',json={'name':'Same'},headers=ORIGIN)
+    response = client.post('/api/automation/tournament-sessions',headers=ORIGIN,json={
+        'tournament_id':'56fd5829-c4ec-46d8-837f-bf3e92f2e97f','players':[{'name':'Same','account_name':'Same'}]})
+    assert response.json()['players'][0]['status'] == 'ambiguous'
+    assert not main.contexts
