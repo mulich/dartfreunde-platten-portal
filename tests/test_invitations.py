@@ -51,6 +51,50 @@ def test_exact_sender_matching():
     assert not sender_allowed({**INVITE, 'sender': 'rot-fake'}, ['rot'])
 
 
+def test_finished_result_returns_home_then_accepts_next_invitation():
+    acceptor, page, button = setup()
+    page.url = 'https://play.autodarts.com/history/matches/finished-1'
+    original_scan = page.evaluate.side_effect
+    async def scan(script):
+        if '/history/' in page.url:
+            return {'path':'/history/matches/finished-1','busy':False,'invites':[]}
+        return await original_scan(script)
+    page.evaluate.side_effect = scan
+    async def navigate(url, **kwargs):
+        page.url = url
+    page.goto = AsyncMock(side_effect=navigate)
+    acceptor.drawer_checked['player'] = {'url':page.url,'at':0}
+    async def check():
+        await acceptor.tick('player')
+        button.click.assert_not_awaited()
+        assert 'player' not in acceptor.drawer_checked
+        await acceptor.tick('player')
+    asyncio.run(check())
+    page.goto.assert_awaited_once_with('https://play.autodarts.com/',
+        wait_until='domcontentloaded',timeout=15000)
+    button.click.assert_awaited_once()
+    assert acceptor.attempts[('player','notice-1')]['done']
+
+
+def test_return_home_never_leaves_live_or_unknown_pages_or_paused_accounts():
+    cases = [('/matches/live',True,True,True),('/lobby/live',True,True,True),
+             ('/matches/live',False,True,True),('/',False,True,True),
+             ('/history/matches/done',False,False,True),
+             ('/history/matches/done',False,True,False),
+             ('/history/matches/done',True,True,True)]
+    for path,busy,enabled,known in cases:
+        acceptor,page,button=setup(invites=[],enabled=enabled)
+        page.url='https://play.autodarts.com'+path
+        page.evaluate.side_effect=None
+        page.evaluate.return_value={'path':path,'busy':busy,'invites':[]}
+        page.goto=AsyncMock()
+        if not known:
+            acceptor.identities.clear()
+        asyncio.run(acceptor.tick('player'))
+        page.goto.assert_not_awaited()
+        button.click.assert_not_awaited()
+
+
 def test_accept_and_confirm_once():
     acceptor, page, button = setup()
     async def check():

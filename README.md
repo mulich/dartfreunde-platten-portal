@@ -23,6 +23,12 @@ Für GitHub-Builds, fertige Container-Images und Updates mit Portainer siehe
 
 ## Turnierteilnehmer und Pause
 
+Nach einem abgeschlossenen Spiel kehren Accounts mit aktivierter Automatik von
+der Autodarts-Ergebnisansicht (`/history/matches/…`) zur Startseite zurück.
+Die Ergebnisansicht hat keinen Benachrichtigungsbutton. Auf der Startseite kann
+das Portal die nächste Einladung wieder öffnen. Laufende Matches und Lobbys
+werden dabei nicht verlassen; unbekannte oder abgemeldete Accounts bleiben stehen.
+
 Die Einladungsannahme wartet beim Laden auf den tatsächlichen
 Benachrichtigungsbutton. Später eintreffende ungelesene Einladungen öffnen die
 native Benachrichtigungsliste auch auf derselben Seite erneut (mindestens

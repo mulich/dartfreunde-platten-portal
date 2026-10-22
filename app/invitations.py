@@ -4,6 +4,7 @@ The notification structure and lobby:invite type were verified against the publi
 Autodarts frontend on 2026-10-03. Unknown structures fail closed.
 """
 import asyncio
+import re
 import time
 from urllib.parse import urlsplit
 
@@ -140,6 +141,18 @@ class AutoAcceptor:
                 pending = None
         if snapshot['busy'] and not pending:
             self.report(ident, 'In Lobby oder Match – wartet auf Abschluss')
+            return
+        # Autodarts moves finished matches to this read-only result route.
+        # It has no notification drawer; waiting there misses the next invite.
+        # Never leave an active /matches/ or /lobby/ page to find invitations.
+        path = urlsplit(page.url).path
+        if (not snapshot['busy'] and not snapshot['invites']
+                and re.fullmatch(r'/history/matches/[^/]+/?', path)
+                and self.identities.get(ident) and item.get('auto_accept')):
+            self.report(ident, 'Spiel beendet – öffnet Startseite für nächste Einladung')
+            await page.goto('https://play.autodarts.com/',
+                            wait_until='domcontentloaded', timeout=15000)
+            self.drawer_checked.pop(ident, None)
             return
         checked = self.drawer_checked.get(ident)
         drawer_due = not checked or checked['url'] != page.url or time.monotonic() - checked['at'] >= 15
