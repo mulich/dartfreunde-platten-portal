@@ -204,12 +204,12 @@ async def automation_diagnostics(ident: str):
             # Only visible button labels/counts: never input values, cookies,
             # request headers, tokens, raw React props or browser storage.
             result['buttons'] = await asyncio.wait_for(page.evaluate(r'''() =>
-              [...document.querySelectorAll('button[aria-label]')].filter(el =>
+              [...document.querySelectorAll('button')].filter(el =>
                 el.getClientRects().length && getComputedStyle(el).visibility!=='hidden')
               .map(el => ({label:(el.getAttribute('aria-label') || '').slice(0,120),
                 text:(el.textContent || '').trim().slice(0,80),
                 expanded:el.getAttribute('aria-expanded'), disabled:el.disabled}))
-              .slice(0,40)
+              .slice(0,100)
             '''),timeout=5)
         except Exception:
             result['message'] = 'Native Ansicht konnte nicht rechtzeitig gelesen werden'
