@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import hashlib
 import logging
 import os
 import uuid
@@ -15,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from playwright.async_api import async_playwright
 from pydantic import BaseModel, Field
 from app.invitations import AutoAcceptor, SCAN
+from app import invitations
 from app.recovery import observe_account
 
 DATA = Path(os.getenv("DATA_DIR", "data"))
@@ -147,7 +149,11 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "invitation_revision": invitation_revision()}
+
+
+def invitation_revision():
+    return hashlib.sha256(Path(invitations.__file__).read_bytes()).hexdigest()[:16]
 
 
 @app.get("/login")
@@ -171,6 +177,48 @@ async def list_players():
              "auto_accept": p.get('auto_accept', False),
              "automation": acceptor.status.get(p['id'], {}) if acceptor else {},
              "error": errors.get(p["id"])} for p in registry.items]
+
+
+@app.get('/api/players/{ident}/automation-diagnostics')
+async def automation_diagnostics(ident: str):
+    if not registry.get(ident):
+        raise HTTPException(404, 'Spieler nicht gefunden')
+    result = {'invitation_revision': invitation_revision(),
+              'enabled': bool(registry.get(ident).get('auto_accept')),
+              'identity_known': bool(account_identities.get(ident)),
+              'running': ident in contexts}
+    if not result['running']:
+        return result
+    async with player_lock(ident):
+        context = contexts.get(ident)
+        if not context or not context.pages:
+            return {**result, 'running': False}
+        page = context.pages[-1]
+        parsed = urlsplit(page.url)
+        result['path'] = parsed.path
+        if parsed.netloc != 'play.autodarts.com':
+            return {**result, 'message': 'Keine Autodarts-Ansicht'}
+        try:
+            snapshot = await asyncio.wait_for(page.evaluate(SCAN), timeout=5)
+            result['scan'] = {key: snapshot.get(key) for key in ('path','busy','invites')}
+            # Only visible button labels/counts: never input values, cookies,
+            # request headers, tokens, raw React props or browser storage.
+            result['buttons'] = await asyncio.wait_for(page.evaluate(r'''() =>
+              [...document.querySelectorAll('button[aria-label]')].filter(el =>
+                el.getClientRects().length && getComputedStyle(el).visibility!=='hidden')
+              .map(el => ({label:(el.getAttribute('aria-label') || '').slice(0,120),
+                text:(el.textContent || '').trim().slice(0,80),
+                expanded:el.getAttribute('aria-expanded'), disabled:el.disabled}))
+              .slice(0,40)
+            '''),timeout=5)
+        except Exception:
+            result['message'] = 'Native Ansicht konnte nicht rechtzeitig gelesen werden'
+        if acceptor:
+            checked = acceptor.drawer_checked.get(ident)
+            result['drawer_check'] = {'path':urlsplit(checked['url']).path,'at':checked['at']} if checked else None
+            result['attempts'] = [{'invitation_id':key[1], 'count':value['count'], 'done':value['done']}
+                                  for key,value in acceptor.attempts.items() if key[0]==ident][-10:]
+    return result
 
 
 class AutomationSettings(BaseModel):

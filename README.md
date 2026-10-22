@@ -29,6 +29,13 @@ native Benachrichtigungsliste auch auf derselben Seite erneut (mindestens
 15 Sekunden Abstand). Eine bereits offene Liste wird nicht zugeschaltet oder
 geschlossen; Freundschaftsanfragen werden weiterhin nicht automatisch angenommen.
 
+Für die Fehlersuche liefert `/health` den Fingerabdruck des geladenen
+Einladungscodes (`invitation_revision`). Unter
+`/api/players/{id}/automation-diagnostics` lassen sich der aktuelle Scan,
+sichtbare Button-Beschriftungen, die Erkennung des angemeldeten Accounts und die
+bisherigen Annahmeversuche rein lesend prüfen. Die Diagnose nimmt keine Einladung
+an und gibt keine Zugangsdaten, Cookies, Browser-Speicher oder Eingabefelder aus.
+
 Beim Erstellen eines Turniers fordert der Turnierplaner die bestehenden
 Account-Sitzungen der Teilnehmer im Portal an und schaltet deren Einladungsannahme
 für die freigegebenen Board-Accounts ein. Er sucht zuerst nach dem exakten

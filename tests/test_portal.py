@@ -234,3 +234,24 @@ def test_tournament_session_duplicates_are_not_guessed(client):
         'tournament_id':'56fd5829-c4ec-46d8-837f-bf3e92f2e97f','players':[{'name':'Same','account_name':'Same'}]})
     assert response.json()['players'][0]['status'] == 'ambiguous'
     assert not main.contexts
+
+
+def test_invitation_diagnostics_are_read_only_and_do_not_include_credentials(client):
+    player = client.post('/api/players',json={'name':'Diagnostic'},headers=ORIGIN).json()
+    path = f"/api/players/{player['id']}/automation-diagnostics"
+    assert client.get(path).json()['running'] is False
+    assert client.get('/api/players/unknown/automation-diagnostics').status_code == 404
+    page = SimpleNamespace(url='https://play.autodarts.com/?private=do-not-include',evaluate=AsyncMock(side_effect=[
+        {'busy':False,'path':'/','invites':[],'private':'do-not-include'},
+        [{'label':'Benachrichtigungen öffnen','text':'1','expanded':'false','disabled':False}]
+    ]))
+    main.contexts[player['id']] = SimpleNamespace(pages=[page],close=AsyncMock())
+    main.account_identities[player['id']] = 'private-user-id'
+    response = client.get(path)
+    assert response.status_code == 200
+    data = response.json()
+    assert data['identity_known'] and data['scan']['busy'] is False
+    assert data['buttons'][0]['text'] == '1'
+    assert data['invitation_revision'] == client.get('/health').json()['invitation_revision']
+    assert 'do-not-include' not in response.text and 'private-user-id' not in response.text
+    assert 'authorization' not in response.text.lower()
