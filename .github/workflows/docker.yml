@@ -17,7 +17,8 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,8 +27,19 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt pytest httpx
+      - name: Configure Ubuntu package mirror
+        timeout-minutes: 2
+        run: |
+          # The runner's Azure mirror can stall apt for an hour before fallback.
+          sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt
+          sudo tee /etc/apt/apt.conf.d/99portal-ci-timeouts >/dev/null <<'EOF'
+          Acquire::http::Timeout "30";
+          Acquire::https::Timeout "30";
+          Acquire::Retries "2";
+          EOF
       - name: Install fixture browser
-        run: python -m playwright install --with-deps chromium
+        timeout-minutes: 5
+        run: python -m playwright install --with-deps --only-shell chromium
       - name: Test
         # Browser fixtures exercise the board-PC userscript without real accounts.
         run: python -m pytest -q
@@ -44,6 +56,7 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
