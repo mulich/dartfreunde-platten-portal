@@ -123,3 +123,49 @@ def test_join_confirmation_requires_exact_lobby_host_account_and_pending_flag():
     match={'path':'/matches/lobby-1','match':{'id':'lobby-1','players':[{'user_id':'own'}]}}
     assert joined(match,INVITE,'own')
     assert not joined({**match,'match':{**match['match'],'id':'unrelated-match'}},INVITE,'own')
+
+
+def test_notification_opener_loading_late_is_not_permanently_skipped(monkeypatch):
+    acceptor, page, _ = setup(invites=[])
+    now = [100.0]
+    monkeypatch.setattr('app.invitations.time.monotonic', lambda: now[0])
+    async def check():
+        await acceptor.tick('player')
+        assert 'player' not in acceptor.drawer_checked
+        async def attribute(name):
+            return 'Benachrichtigungen öffnen' if name == 'aria-label' else 'false'
+        opener = SimpleNamespace(get_attribute=AsyncMock(side_effect=attribute),
+            is_visible=AsyncMock(return_value=True), inner_text=AsyncMock(return_value=''),click=AsyncMock())
+        page.locator = lambda selector: Buttons([opener])
+        await acceptor.tick('player')
+        opener.click.assert_awaited_once()
+        await acceptor.tick('player')
+        opener.click.assert_awaited_once()
+        now[0] += 16
+        await acceptor.tick('player')
+        opener.click.assert_awaited_once()  # No unread badge: leave closed.
+        opener.inner_text.return_value = '1'
+        await acceptor.tick('player')
+        assert opener.click.await_count == 2
+        await acceptor.tick('player')
+        assert opener.click.await_count == 2  # Cooldown, not repeated toggling.
+    asyncio.run(check())
+
+
+def test_open_notification_drawer_is_never_toggled_closed_and_friends_are_skipped(monkeypatch):
+    acceptor, page, _ = setup(invites=[])
+    clock = [100.0]
+    monkeypatch.setattr('app.invitations.time.monotonic',lambda:clock[0])
+    async def attributes(name):
+        return 'Open notifications' if name=='aria-label' else 'true'
+    friends = SimpleNamespace(get_attribute=AsyncMock(return_value='Friends and notifications'),click=AsyncMock())
+    opener = SimpleNamespace(get_attribute=AsyncMock(side_effect=attributes),is_visible=AsyncMock(return_value=True),
+        inner_text=AsyncMock(return_value='1'),click=AsyncMock())
+    page.locator = lambda selector: Buttons([friends,opener])
+    async def check():
+        await acceptor.tick('player')
+        clock[0] += 16
+        await acceptor.tick('player')
+    asyncio.run(check())
+    friends.click.assert_not_awaited()
+    opener.click.assert_not_awaited()

@@ -23,6 +23,12 @@ Für GitHub-Builds, fertige Container-Images und Updates mit Portainer siehe
 
 ## Turnierteilnehmer und Pause
 
+Die Einladungsannahme wartet beim Laden auf den tatsächlichen
+Benachrichtigungsbutton. Später eintreffende ungelesene Einladungen öffnen die
+native Benachrichtigungsliste auch auf derselben Seite erneut (mindestens
+15 Sekunden Abstand). Eine bereits offene Liste wird nicht zugeschaltet oder
+geschlossen; Freundschaftsanfragen werden weiterhin nicht automatisch angenommen.
+
 Beim Erstellen eines Turniers fordert der Turnierplaner die bestehenden
 Account-Sitzungen der Teilnehmer im Portal an und schaltet deren Einladungsannahme
 für die freigegebenen Board-Accounts ein. Er sucht zuerst nach dem exakten

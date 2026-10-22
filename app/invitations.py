@@ -141,18 +141,28 @@ class AutoAcceptor:
         if snapshot['busy'] and not pending:
             self.report(ident, 'In Lobby oder Match – wartet auf Abschluss')
             return
-        if not snapshot['invites'] and self.drawer_checked.get(ident) != page.url:
-            self.drawer_checked[ident] = page.url
-            # Existing unread notifications may no longer have a toast. Open
-            # the native drawer once after activation, never toggle it repeatedly.
+        checked = self.drawer_checked.get(ident)
+        drawer_due = not checked or checked['url'] != page.url or time.monotonic() - checked['at'] >= 15
+        if not snapshot['invites'] and drawer_due:
+            # Wait for the native opener to exist before recording a check.
+            # Later unread invitations may arrive at the same URL after a toast
+            # has disappeared; reopen for those, without toggling an open drawer.
             button = page.locator('button[aria-label]')
             for index in range(await button.count()):
                 candidate = button.nth(index)
                 label = (await candidate.get_attribute('aria-label') or '').casefold()
                 if ('notification' in label or 'benachrichtigung' in label) and not any(
-                    word in label for word in ('close', 'schließen', 'dismiss')):
-                    if await candidate.is_visible() and await candidate.get_attribute('aria-expanded') != 'true':
-                        await candidate.click(timeout=2000)
+                    word in label for word in ('close', 'schließen', 'dismiss', 'friend', 'freunde')):
+                    if not await candidate.is_visible():
+                        continue
+                    expanded = await candidate.get_attribute('aria-expanded') == 'true'
+                    first_check = not checked or checked['url'] != page.url
+                    count = (await candidate.inner_text()).strip()
+                    unread = any(c.isdigit() for c in count) and count != '0'
+                    if expanded or first_check or unread:
+                        if not expanded:
+                            await candidate.click(timeout=2000)
+                        self.drawer_checked[ident] = {'url': page.url, 'at': time.monotonic()}
                     break
             self.report(ident, 'Wartet auf Lobby-Einladung')
             return
